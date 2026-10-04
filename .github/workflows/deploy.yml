@@ -75,12 +75,12 @@ jobs:
           set -e
 
 
-          VOLUME_DIR="/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
+          VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
           echo "=== Databricks identity ==="
           databricks current-user me
       
           echo "=== Listing schema volumes ==="
-          databricks fs ls "/Volumes/${CATALOG}/${SCHEMA}"
+          databricks fs ls "dbfs:/Volumes/${CATALOG}/${SCHEMA}"
       
           echo "=== Listing target volume ==="
           databricks fs ls "$VOLUME_DIR"
@@ -99,7 +99,7 @@ jobs:
             exit 1
           fi
           WHL_NAME=$(basename "$WHL")
-          VOLUME_DIR="/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
+          VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
           
           echo "Wheel: $WHL"
           echo "Wheel name: $WHL_NAME"
@@ -124,7 +124,7 @@ jobs:
           LLM: ${{ inputs.llm_model }}
           ENDPOINT: ${{ inputs.serving_endpoint }}
           CLUSTER_ID: ${{ inputs.existing_cluster_id }}
-          VOLUME_DIR: /Volumes/${{ inputs.catalog }}/${{ inputs.schema }}/model_wheel_demo
+          VOLUME_DIR: dbfs:/Volumes/${{ inputs.catalog }}/${{ inputs.schema }}/model_wheel_demo
         run: |
           set -e
           
