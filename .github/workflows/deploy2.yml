@@ -253,7 +253,7 @@ jobs:
           WHL_NAME=$(basename "$WHL")
       
           # CLI path used for uploading files
-          VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
+          # VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
       
           # Runtime path used by Databricks Serverless
           RUNTIME_WHL_PATH="/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo/${WHL_NAME}"
@@ -271,6 +271,7 @@ jobs:
             "tasks": [
               {
                 "task_key": "register_and_serve",
+                "environment_key": "default",
                 "spark_python_task": {
                   "python_file": "${ROOT}/scripts/register_model.py",
                   "parameters": [
@@ -283,8 +284,13 @@ jobs:
                     "--wheel-path",
                     "${RUNTIME_WHL_PATH}"
                   ]
-                },
-                "environment": {
+                }
+              }
+            ],
+            "environments": [
+              {
+                "environment_key": "default",
+                "spec": {
                   "environment_version": "4",
                   "dependencies": [
                     "${RUNTIME_WHL_PATH}"
@@ -294,7 +300,7 @@ jobs:
             ]
           }
           EOF
-      
+          
           echo "=== Databricks Serverless Job JSON ==="
           cat job.json
       
