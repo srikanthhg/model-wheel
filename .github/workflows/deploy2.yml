@@ -240,93 +240,66 @@ jobs:
         env:
           CATALOG: ${{ inputs.catalog }}
           SCHEMA: ${{ inputs.schema }}
-          LLM: ${{ inputs.llm_model }}
-          ENDPOINT: ${{ inputs.serving_endpoint }}
-
         run: |
-
           set -e
-
+      
           WHL=$(find dist -name '*.whl' -print -quit)
-
+      
           if [ -z "$WHL" ]; then
-            echo "ERROR: No wheel found"
+            echo "ERROR: No wheel found in dist/"
             exit 1
           fi
-
+      
           WHL_NAME=$(basename "$WHL")
-
+      
+          # CLI path used for uploading files
           VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
-
-          WHL_PATH="${VOLUME_DIR}/${WHL_NAME}"
-
+      
+          # Runtime path used by Databricks Serverless
+          RUNTIME_WHL_PATH="/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo/${WHL_NAME}"
+      
           MODEL_NAME="${CATALOG}.${SCHEMA}.demo_agent"
-
-          echo "======================================"
-          echo "Submitting Databricks Serverless Run"
-          echo "======================================"
-
-          echo "Model name:"
-          echo "$MODEL_NAME"
-
-          echo "LLM:"
-          echo "$LLM"
-
-          echo "Serving endpoint:"
-          echo "$ENDPOINT"
-
-          echo "Wheel:"
-          echo "$WHL_PATH"
-
-          # ----------------------------------------------------
-          # Generate job JSON
-          # ----------------------------------------------------
+      
+          echo "Wheel: $WHL"
+          echo "Wheel name: $WHL_NAME"
+          echo "Runtime wheel path: $RUNTIME_WHL_PATH"
+          echo "Model name: $MODEL_NAME"
+      
           cat > job.json <<EOF
           {
             "run_name": "model-wheel-deploy-${GITHUB_RUN_NUMBER}",
-
             "tasks": [
               {
                 "task_key": "register_and_serve",
-
                 "spark_python_task": {
                   "python_file": "${ROOT}/scripts/register_model.py",
-
                   "parameters": [
                     "--model-name",
                     "${MODEL_NAME}",
-
                     "--llm-model",
-                    "${LLM}",
-
+                    "${{ inputs.llm_model }}",
                     "--serving-endpoint",
-                    "${ENDPOINT}",
-
+                    "${{ inputs.serving_endpoint }}",
                     "--wheel-path",
-                    "${WHL_PATH}"
+                    "${RUNTIME_WHL_PATH}"
                   ]
                 },
-
-                "libraries": [
-                  {
-                    "whl": "${WHL_PATH}"
-                  }
-                ]
+                "environment": {
+                  "environment_version": "4",
+                  "dependencies": [
+                    "${RUNTIME_WHL_PATH}"
+                  ]
+                }
               }
             ]
           }
           EOF
-
-          echo "======================================"
-          echo "Generated job.json"
-          echo "======================================"
-
+      
+          echo "=== Databricks Serverless Job JSON ==="
           cat job.json
-
-          echo "======================================"
-          echo "Submitting Serverless run"
-          echo "======================================"
-
+      
+          echo "=== Submitting Serverless Run ==="
+      
           databricks jobs submit \
             --json @job.json \
             --performance-target STANDARD
