@@ -24,7 +24,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.11"
-  DBFS_DIR: dbfs:/tmp/model-wheel-demo
+  # DBFS_DIR: dbfs:/tmp/model-wheel-demo
   # DBFS_DIR: /Workspace/Shared/model-wheel-demo
 
 jobs:
@@ -68,6 +68,9 @@ jobs:
           path: dist
 
       - name: Upload wheel and deployment script
+        env:
+          CATALOG: ${{ inputs.catalog }}
+          SCHEMA: ${{ inputs.schema }}
         run: |
           set -e
           
@@ -78,20 +81,21 @@ jobs:
             exit 1
           fi
           WHL_NAME=$(basename "$WHL")
-
+          VOLUME_DIR="/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
+          
           echo "Wheel: $WHL"
           echo "Wheel name: $WHL_NAME"
+          echo "Volume: $VOLUME_DIR"
           
-          databricks fs mkdir "$DBFS_DIR"
-          databricks fs cp "$WHL" "$DBFS_DIR/$(basename "$WHL")" --overwrite
+          databricks fs cp "$WHL" "$VOLUME_DIR/$WHL_NAME" --overwrite
           
           databricks workspace mkdirs "$ROOT/scripts"
           databricks workspace import scripts/register_model.py "$ROOT/scripts/register_model.py" --overwrite
 
-          echo "Uploaded wheel:"
+          echo "=== Uploaded wheel ==="
           databricks fs ls "$DBFS_DIR"
       
-          echo "Uploaded deployment script:"
+          echo "=== Uploaded deployment script ==="
           databricks workspace get-status "$ROOT/scripts/register_model.py"
     
       - name: Submit deployment job
@@ -102,7 +106,10 @@ jobs:
           LLM: ${{ inputs.llm_model }}
           ENDPOINT: ${{ inputs.serving_endpoint }}
           CLUSTER_ID: ${{ inputs.existing_cluster_id }}
+          VOLUME_DIR: /Volumes/${{ inputs.catalog }}/${{ inputs.schema }}/model_wheel_demo
         run: |
+          set -e
+          
           WHL=$(find dist -name '*.whl' -print -quit)
           WHL_NAME=$(basename "$WHL")
 
@@ -118,15 +125,18 @@ jobs:
                   "--model-name", "${CATALOG}.${SCHEMA}.demo_agent",
                   "--llm-model", "${LLM}",
                   "--serving-endpoint", "${ENDPOINT}",
-                  "--wheel-path", "${DBFS_DIR}/${WHL_NAME}"
+                  "--wheel-path", "${VOLUME_DIR}/${WHL_NAME}"
                 ]
               },
               "libraries": [
-                {"whl": "${DBFS_DIR}/${WHL_NAME}"}
+                {"whl": "${VOLUME_DIR}/${WHL_NAME}"}
               ]
             }]
           }
           EOF
+
+          echo "=== Job definition ==="
+          cat job.json
 
           databricks jobs submit --json @job.json > run.json
           echo "run_id=$(python -c 'import json;print(json.load(open("run.json"))["run_id"])')" >> "$GITHUB_OUTPUT"
@@ -139,11 +149,16 @@ jobs:
             RESULT=$(python -c 'import json;print(json.load(open("state.json"))["state"].get("result_state",""))')
             echo "lifecycle=$STATE result=$RESULT"
             if [ "$STATE" = "TERMINATED" ]; then
-              [ "$RESULT" = "SUCCESS" ] && exit 0
+              if [ "$RESULT" = "SUCCESS" ]; then
+                exit 0
+              fi
+              
               cat state.json
               exit 1
             fi
+            
             sleep 20
           done
+          
           echo "Timed out waiting for Databricks job"
           exit 1
