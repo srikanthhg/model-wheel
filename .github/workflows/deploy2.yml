@@ -216,10 +216,11 @@ jobs:
             --format SOURCE \
             --language PYTHON \
             --overwrite
-
+            
+          echo "=== Uploading register_model.py ==="
           databricks workspace import \
-            /Workspace/Shared/model-wheel-demo/scripts/serverless_test.py \
-            --file serverless_test.py \
+            "$ROOT/scripts/serverless_test.py \
+            --file scripts/serverless_test.py \
             --format SOURCE \
             --language PYTHON \
             --overwrite
