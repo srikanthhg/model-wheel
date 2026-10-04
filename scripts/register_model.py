@@ -165,6 +165,7 @@ def main():
             input_example=[
                 {"input": "What is MLflow?"}
             ],
+            code_paths=[str(wheel_path)],
             pip_requirements=[
                 f"code/{wheel_path.name}",
                 "databricks-langchain==0.6.0",
