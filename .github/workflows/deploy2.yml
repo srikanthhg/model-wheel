@@ -339,8 +339,9 @@ jobs:
             STATE=$(python -c 'import json; print(json.load(open("state.json"))["state"]["life_cycle_state"])')
 
             RESULT=$(python -c 'import json; print(json.load(open("state.json"))["state"].get("result_state",""))')
+            TASK=$(python -c 'import json; print(json.load(open("state.json"))["tasks"]["state"]["state_message"])')
 
-            echo "lifecycle=$STATE result=$RESULT"
+            echo "lifecycle=$STATE result=$RESULT" task="$TASK"
 
             if [ "$STATE" = "TERMINATED" ]; then
 
@@ -369,7 +370,7 @@ jobs:
               exit 1
             fi
 
-            sleep 30
+            sleep 60
 
           done
 
