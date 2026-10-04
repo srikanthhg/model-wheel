@@ -283,7 +283,7 @@ jobs:
                 "task_key": "basic_test",
                 "environment_key": "default",
                 "notebook_task": {
-                  "python_file": "/Workspace/Shared/model-wheel-demo/scripts/serverless_test.py"
+                  "notebook_path": "/Workspace/Shared/model-wheel-demo/scripts/serverless_test.py"
                 }
               }
             ],
