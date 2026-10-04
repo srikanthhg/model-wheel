@@ -15,12 +15,16 @@ on:
       serving_endpoint:
         required: true
         default: model-wheel-agent
+      existing_cluster_id:
+        description: "Databricks cluster ID used for the deployment job"
+        required: true
 
 permissions:
   contents: read
 
 env:
   PYTHON_VERSION: "3.11"
+  DBFS_DIR: dbfs:/tmp/model-wheel-demo
 
 jobs:
   build:
@@ -54,18 +58,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install --upgrade databricks-cli
+
+      - uses: databricks/setup-cli@main
+
       - uses: actions/download-artifact@v4
         with:
           name: model-wheel
           path: dist
-      - name: Upload files
+
+      - name: Upload wheel and deployment script
         run: |
-          databricks workspace mkdirs "$ROOT/dist"
-          databricks workspace mkdirs "$ROOT/scripts"
           WHL=$(find dist -name '*.whl' -print -quit)
-          databricks workspace import "$WHL" "$ROOT/dist/$(basename "$WHL")" --overwrite
+          databricks fs mkdir "$DBFS_DIR"
+          databricks fs cp "$WHL" "$DBFS_DIR/$(basename "$WHL")" --overwrite
+          databricks workspace mkdirs "$ROOT/scripts"
           databricks workspace import scripts/register_model.py "$ROOT/scripts/register_model.py" --overwrite
+
       - name: Submit deployment job
         id: job
         env:
@@ -73,24 +81,37 @@ jobs:
           SCHEMA: ${{ inputs.schema }}
           LLM: ${{ inputs.llm_model }}
           ENDPOINT: ${{ inputs.serving_endpoint }}
+          CLUSTER_ID: ${{ inputs.existing_cluster_id }}
         run: |
           WHL=$(find dist -name '*.whl' -print -quit)
+          WHL_NAME=$(basename "$WHL")
+
           cat > job.json <<EOF
           {
             "run_name": "model-wheel-deploy-${GITHUB_RUN_NUMBER}",
             "tasks": [{
               "task_key": "register_and_serve",
+              "existing_cluster_id": "${CLUSTER_ID}",
               "spark_python_task": {
-                "python_file": "$ROOT/scripts/register_model.py",
-                "parameters": ["--model-name", "$CATALOG.$SCHEMA.demo_agent", "--llm-model", "$LLM", "--serving-endpoint", "$ENDPOINT"]
+                "python_file": "${ROOT}/scripts/register_model.py",
+                "parameters": [
+                  "--model-name", "${CATALOG}.${SCHEMA}.demo_agent",
+                  "--llm-model", "${LLM}",
+                  "--serving-endpoint", "${ENDPOINT}",
+                  "--wheel-path", "/dbfs/tmp/model-wheel-demo/${WHL_NAME}"
+                ]
               },
-              "libraries": [{"whl": "$ROOT/dist/$(basename "$WHL")"}]
+              "libraries": [
+                {"whl": "${DBFS_DIR}/${WHL_NAME}"}
+              ]
             }]
           }
           EOF
+
           databricks jobs submit --json @job.json > run.json
           echo "run_id=$(python -c 'import json;print(json.load(open("run.json"))["run_id"])')" >> "$GITHUB_OUTPUT"
-      - name: Wait for deployment
+
+      - name: Wait for deployment job
         run: |
           for i in $(seq 1 60); do
             databricks runs get "${{ steps.job.outputs.run_id }}" > state.json
@@ -99,8 +120,10 @@ jobs:
             echo "lifecycle=$STATE result=$RESULT"
             if [ "$STATE" = "TERMINATED" ]; then
               [ "$RESULT" = "SUCCESS" ] && exit 0
-              cat state.json; exit 1
+              cat state.json
+              exit 1
             fi
             sleep 20
           done
+          echo "Timed out waiting for Databricks job"
           exit 1
