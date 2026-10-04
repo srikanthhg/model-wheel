@@ -73,6 +73,24 @@ jobs:
           SCHEMA: ${{ inputs.schema }}
         run: |
           set -e
+
+
+          VOLUME_DIR="/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
+          echo "=== Databricks identity ==="
+          databricks current-user me
+      
+          echo "=== Listing schema volumes ==="
+          databricks fs ls "/Volumes/${CATALOG}/${SCHEMA}"
+      
+          echo "=== Listing target volume ==="
+          databricks fs ls "$VOLUME_DIR"
+      
+          echo "=== Volume test completed ==="
+
+
+
+
+
           
           WHL=$(find dist -name '*.whl' -print -quit)
 
