@@ -202,7 +202,7 @@ def main():
     print("Setting Champion alias...", flush=True)
 
     client.registered_models.set_alias(
-        name=args.model_name,
+        registered_model_name=args.model_name,
         alias="Champion",
         version=version,
     )
