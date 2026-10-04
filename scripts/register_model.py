@@ -9,6 +9,7 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import (
     EndpointCoreConfigInput,
     ServedModelInput,
+    WorkloadSize,
 )
 
 from model_wheel_demo.agent import build_agent
@@ -217,7 +218,7 @@ def main():
     served = ServedModelInput(
         model_name=args.model_name,
         model_version=version,
-        workload_size="Small",
+        workload_size=WorkloadSize.SMALL,
         scale_to_zero_enabled=True,
     )
 
