@@ -70,7 +70,7 @@ jobs:
       - name: Upload wheel and deployment script
         run: |
           WHL=$(find dist -name '*.whl' -print -quit)
-          databricks fs mkdir "$DBFS_DIR"
+          # databricks fs mkdir "$DBFS_DIR"
           databricks fs cp "$WHL" "$DBFS_DIR/$(basename "$WHL")" --overwrite
           databricks workspace mkdirs "$ROOT/scripts"
           databricks workspace import scripts/register_model.py "$ROOT/scripts/register_model.py" --overwrite
