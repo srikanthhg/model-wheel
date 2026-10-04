@@ -282,7 +282,7 @@ jobs:
               {
                 "task_key": "basic_test",
                 "environment_key": "default",
-                "spark_python_task": {
+                "notebook_task": {
                   "python_file": "/Workspace/Shared/model-wheel-demo/scripts/serverless_test.py"
                 }
               }
