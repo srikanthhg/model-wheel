@@ -322,7 +322,7 @@ jobs:
 
             echo "Checking Databricks run..."
 
-            databricks runs get "${{ steps.job.outputs.run_id }}" > state.json
+            databricks jobs get-run "${{ steps.job.outputs.run_id }}" > state.json
 
             STATE=$(python -c 'import json; print(json.load(open("state.json"))["state"]["life_cycle_state"])')
 
