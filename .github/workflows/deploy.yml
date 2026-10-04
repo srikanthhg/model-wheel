@@ -24,7 +24,8 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.11"
-  DBFS_DIR: dbfs:/tmp/model-wheel-demo
+  # DBFS_DIR: dbfs:/tmp/model-wheel-demo
+  DBFS_DIR: /Workspace/Shared/model-wheel-demo
 
 jobs:
   build:
