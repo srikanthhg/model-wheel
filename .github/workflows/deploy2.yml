@@ -219,7 +219,7 @@ jobs:
             
           echo "=== Uploading register_model.py ==="
           databricks workspace import \
-            "$ROOT/scripts/serverless_test.py \
+            "$ROOT/scripts/serverless_test.py" \
             --file scripts/serverless_test.py \
             --format SOURCE \
             --language PYTHON \
