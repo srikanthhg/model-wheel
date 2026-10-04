@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 import mlflow
 from databricks.sdk import WorkspaceClient
@@ -19,15 +20,12 @@ class AgentModel(mlflow.pyfunc.PythonModel):
     def __init__(self, llm_model: str):
         self.llm_model = llm_model
 
-    def predict(self, context, model_input):
+    def predict(self, context: Any, model_input: dict[str, Any]) -> str:
         print("Starting agent prediction...", flush=True)
 
         agent = build_agent(self.llm_model)
 
-        if isinstance(model_input, dict):
-            prompt = model_input.get("input", "")
-        else:
-            prompt = model_input
+        prompt = model_input.get("input", "")
 
         if not prompt:
             raise ValueError(
@@ -44,31 +42,59 @@ class AgentModel(mlflow.pyfunc.PythonModel):
 def parse_args():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(
-        "--model-name",
-        required=True,
-    )
-
-    parser.add_argument(
-        "--llm-model",
-        required=True,
-    )
-
-    parser.add_argument(
-        "--serving-endpoint",
-        required=True,
-    )
-
-    parser.add_argument(
-        "--wheel-path",
-        required=True,
-    )
+    parser.add_argument("--model-name", required=True)
+    parser.add_argument("--llm-model", required=True)
+    parser.add_argument("--serving-endpoint", required=True)
+    parser.add_argument("--wheel-path", required=True)
 
     return parser.parse_args()
 
 
+def get_parameters():
+    """
+    Get deployment parameters.
+
+    Databricks executes this .py file as a notebook, so notebook_task
+    parameters are exposed through dbutils.widgets rather than sys.argv.
+    The argparse fallback keeps the script usable outside Databricks.
+    """
+    try:
+        dbutils
+    except NameError:
+        return parse_args()
+
+    dbutils.widgets.text("model-name", "")
+    dbutils.widgets.text("llm-model", "")
+    dbutils.widgets.text("serving-endpoint", "")
+    dbutils.widgets.text("wheel-path", "")
+
+    args = argparse.Namespace(
+        model_name=dbutils.widgets.get("model-name"),
+        llm_model=dbutils.widgets.get("llm-model"),
+        serving_endpoint=dbutils.widgets.get("serving-endpoint"),
+        wheel_path=dbutils.widgets.get("wheel-path"),
+    )
+
+    required = {
+        "model-name": args.model_name,
+        "llm-model": args.llm_model,
+        "serving-endpoint": args.serving_endpoint,
+        "wheel-path": args.wheel_path,
+    }
+
+    missing = [name for name, value in required.items() if not value]
+
+    if missing:
+        raise ValueError(
+            "Missing Databricks notebook parameters: "
+            + ", ".join(missing)
+        )
+
+    return args
+
+
 def main():
-    args = parse_args()
+    args = get_parameters()
 
     print("========================================", flush=True)
     print("Starting Databricks MLflow deployment", flush=True)
@@ -87,22 +113,14 @@ def main():
     print("Checking wheel...", flush=True)
 
     if not wheel_path.is_file():
-        raise FileNotFoundError(
-            f"Wheel not found: {wheel_path}"
-        )
+        raise FileNotFoundError(f"Wheel not found: {wheel_path}")
 
-    print(
-        f"Wheel found: {wheel_path}",
-        flush=True,
-    )
+    print(f"Wheel found: {wheel_path}", flush=True)
 
     # ------------------------------------------------------------------
     # 2. Configure Unity Catalog Model Registry
     # ------------------------------------------------------------------
-    print(
-        "Configuring MLflow Unity Catalog registry...",
-        flush=True,
-    )
+    print("Configuring MLflow Unity Catalog registry...", flush=True)
 
     mlflow.set_registry_uri("databricks-uc")
 
@@ -114,89 +132,49 @@ def main():
     # ------------------------------------------------------------------
     # 3. Log model to MLflow and register in Unity Catalog
     # ------------------------------------------------------------------
-    print(
-        "Starting MLflow run...",
-        flush=True,
-    )
+    print("Starting MLflow run...", flush=True)
 
     with mlflow.start_run() as run:
-        print(
-            f"MLflow run started: {run.info.run_id}",
-            flush=True,
-        )
+        print(f"MLflow run started: {run.info.run_id}", flush=True)
 
-        print(
-            "Logging pyfunc model to MLflow...",
-            flush=True,
-        )
+        print("Logging pyfunc model to MLflow...", flush=True)
 
         info = mlflow.pyfunc.log_model(
             artifact_path="agent",
             python_model=AgentModel(args.llm_model),
             registered_model_name=args.model_name,
-            input_example={
-                "input": "What is MLflow?"
-            },
-            code_paths=[
-                str(wheel_path)
-            ],
+            input_example={"input": "What is MLflow?"},
+            code_paths=[str(wheel_path)],
             extra_pip_requirements=[
                 f"code/{wheel_path.name}"
             ],
         )
 
-        print(
-            "MLflow model logging completed.",
-            flush=True,
-        )
-
-        print(
-            f"MLflow run ID: {run.info.run_id}",
-            flush=True,
-        )
+        print("MLflow model logging completed.", flush=True)
+        print(f"MLflow run ID: {run.info.run_id}", flush=True)
 
     # ------------------------------------------------------------------
     # 4. Get registered model version
     # ------------------------------------------------------------------
     version = info.registered_model_version
 
-    print(
-        "Unity Catalog model registered successfully.",
-        flush=True,
-    )
-
-    print(
-        "Model : {args.model_name}",
-        flush=True,
-    )
-
-    print(
-        "Version : {version}",
-        flush=True,
-    )
+    print("Unity Catalog model registered successfully.", flush=True)
+    print(f"Model   : {args.model_name}", flush=True)
+    print(f"Version : {version}", flush=True)
 
     # ------------------------------------------------------------------
     # 5. Create Databricks Workspace client
     # ------------------------------------------------------------------
-    print(
-        "Creating Databricks Workspace client...",
-        flush=True,
-    )
+    print("Creating Databricks Workspace client...", flush=True)
 
     client = WorkspaceClient()
 
-    print(
-        "Workspace client created.",
-        flush=True,
-    )
+    print("Workspace client created.", flush=True)
 
     # ------------------------------------------------------------------
     # 6. Set Champion alias
     # ------------------------------------------------------------------
-    print(
-        "Setting Champion alias...",
-        flush=True,
-    )
+    print("Setting Champion alias...", flush=True)
 
     client.registered_models.set_alias(
         name=args.model_name,
@@ -204,18 +182,12 @@ def main():
         version=version,
     )
 
-    print(
-        "Champion -> version {version}",
-        flush=True,
-    )
+    print(f"Champion -> version {version}", flush=True)
 
     # ------------------------------------------------------------------
     # 7. Prepare serving configuration
     # ------------------------------------------------------------------
-    print(
-        "Preparing Model Serving configuration...",
-        flush=True,
-    )
+    print("Preparing Model Serving configuration...", flush=True)
 
     served = ServedModelInput(
         model_name=args.model_name,
@@ -227,10 +199,7 @@ def main():
     # ------------------------------------------------------------------
     # 8. Check whether endpoint already exists
     # ------------------------------------------------------------------
-    print(
-        "Checking existing serving endpoints...",
-        flush=True,
-    )
+    print("Checking existing serving endpoints...", flush=True)
 
     endpoint_names = [
         endpoint.name
@@ -238,7 +207,7 @@ def main():
     ]
 
     print(
-        "Found {len(endpoint_names)} serving endpoint(s).",
+        f"Found {len(endpoint_names)} serving endpoint(s).",
         flush=True,
     )
 
@@ -247,7 +216,7 @@ def main():
     # ------------------------------------------------------------------
     if args.serving_endpoint in endpoint_names:
         print(
-            "Serving endpoint '{args.serving_endpoint}' already exists.",
+            f"Serving endpoint '{args.serving_endpoint}' already exists.",
             flush=True,
         )
 
@@ -268,14 +237,11 @@ def main():
 
     else:
         print(
-            "Serving endpoint '{args.serving_endpoint}' does not exist.",
+            f"Serving endpoint '{args.serving_endpoint}' does not exist.",
             flush=True,
         )
 
-        print(
-            "Creating serving endpoint...",
-            flush=True,
-        )
+        print("Creating serving endpoint...", flush=True)
 
         client.serving_endpoints.create(
             name=args.serving_endpoint,
@@ -297,138 +263,11 @@ def main():
     print("Deployment request completed", flush=True)
     print("========================================", flush=True)
 
-    print(
-        "Registered model : {args.model_name}",
-        flush=True,
-    )
-
-    print(
-        "Model version    : {version}",
-        flush=True,
-    )
-
-    print(
-        "Champion         : version {version}",
-        flush=True,
-    )
-
-    print(
-        "Serving endpoint : {args.serving_endpoint}",
-        flush=True,
-    )
+    print(f"Registered model : {args.model_name}", flush=True)
+    print(f"Model version    : {version}", flush=True)
+    print(f"Champion         : version {version}", flush=True)
+    print(f"Serving endpoint : {args.serving_endpoint}", flush=True)
 
 
 if __name__ == "__main__":
     main()
-
-
-# from __future__ import annotations
-
-# import argparse
-# from pathlib import Path
-
-# import mlflow
-# from databricks.sdk import WorkspaceClient
-# from databricks.sdk.service.serving import EndpointCoreConfigInput, ServedModelInput
-
-# from model_wheel_demo.agent import build_agent
-
-
-# class AgentModel(mlflow.pyfunc.PythonModel):
-#     """MLflow pyfunc wrapper around the packaged Databricks agent."""
-
-#     def __init__(self, llm_model: str):
-#         self.llm_model = llm_model
-
-#     def predict(self, context, model_input):
-#         agent = build_agent(self.llm_model)
-
-#         if isinstance(model_input, dict):
-#             prompt = model_input.get("input", "")
-#         else:
-#             prompt = model_input
-
-#         if not prompt:
-#             raise ValueError("model input must contain a non-empty 'input' value")
-
-#         result = agent.invoke({"input": prompt})
-#         return result.get("output", result)
-
-
-# def parse_args():
-#     p = argparse.ArgumentParser()
-#     p.add_argument("--model-name", required=True)
-#     p.add_argument("--llm-model", required=True)
-#     p.add_argument("--serving-endpoint", required=True)
-#     p.add_argument("--wheel-path", required=True)
-#     return p.parse_args()
-
-
-# def main():
-#     args = parse_args()
-#     wheel_path = Path(args.wheel_path)
-
-#     if not wheel_path.is_file():
-#         raise FileNotFoundError(f"Wheel not found: {wheel_path}")
-
-#     mlflow.set_registry_uri("databricks-uc")
-
-#     print("Starting MLflow model registration...", flush=True)
-#     with mlflow.start_run() as run:
-#         print("Logging model to MLflow...", flush=True)
-
-#         info = mlflow.pyfunc.log_model(
-#             artifact_path="agent",
-#             python_model=AgentModel(args.llm_model),
-#             registered_model_name=args.model_name,
-#             input_example={"input": "What is MLflow?"},
-#             code_paths=[str(wheel_path)],
-#             extra_pip_requirements=[f"code/{wheel_path.name}"],
-#         )
-#         print("MLflow model logging completed.", flush=True)
-#         print(f"MLflow run: {run.info.run_id}", flush=True)
-
-#     version = info.registered_model_version
-
-#     print(f"Registered model version: {version}", flush=True)
-#     print("Setting Champion alias...", flush=True
-    
-#     client = WorkspaceClient()
-
-#     client.registered_models.set_alias(
-#         name=args.model_name,
-#         alias="Champion",
-#         version=version,
-#     )
-#     print("Champion alias set.", flush=True)
-#     print("Creating/updating serving endpoint...", flush=True)
-    
-#     served = ServedModelInput(
-#         model_name=args.model_name,
-#         model_version=version,
-#         workload_size="Small",
-#         scale_to_zero_enabled=True,
-#     )
-
-#     endpoint_names = [e.name for e in client.serving_endpoints.list()]
-#     if args.serving_endpoint in endpoint_names:
-#         client.serving_endpoints.update_config(
-#             name=args.serving_endpoint,
-#             served_models=[served],
-#         )
-#     else:
-#         client.serving_endpoints.create(
-#             name=args.serving_endpoint,
-#             config=EndpointCoreConfigInput(
-#                 name=args.serving_endpoint,
-#                 served_models=[served],
-#             ),
-#         )
-
-#     print(f"Registered {args.model_name} version {version}")
-#     print(f"Champion -> version {version}")
-#     print(f"Serving endpoint -> {args.serving_endpoint}")
-
-
-# if __name__ == "__main__":
-#     main()
