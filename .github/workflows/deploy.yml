@@ -1,0 +1,106 @@
+name: Build and Deploy Databricks Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      catalog:
+        required: true
+        default: main
+      schema:
+        required: true
+        default: mlflow_demo
+      llm_model:
+        required: true
+        default: databricks-meta-llama-3-3-70b-instruct
+      serving_endpoint:
+        required: true
+        default: model-wheel-agent
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: python -m pip install --upgrade pip build pytest ruff
+      - run: python -m build
+      - run: |
+          python -m pip install dist/*.whl
+          pytest -q
+          ruff check .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model-wheel
+          path: dist/*.whl
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: databricks
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      ROOT: /Workspace/Shared/model-wheel-demo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install --upgrade databricks-cli
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-wheel
+          path: dist
+      - name: Upload files
+        run: |
+          databricks workspace mkdirs "$ROOT/dist"
+          databricks workspace mkdirs "$ROOT/scripts"
+          WHL=$(find dist -name '*.whl' -print -quit)
+          databricks workspace import "$WHL" "$ROOT/dist/$(basename "$WHL")" --overwrite
+          databricks workspace import scripts/register_model.py "$ROOT/scripts/register_model.py" --overwrite
+      - name: Submit deployment job
+        id: job
+        env:
+          CATALOG: ${{ inputs.catalog }}
+          SCHEMA: ${{ inputs.schema }}
+          LLM: ${{ inputs.llm_model }}
+          ENDPOINT: ${{ inputs.serving_endpoint }}
+        run: |
+          WHL=$(find dist -name '*.whl' -print -quit)
+          cat > job.json <<EOF
+          {
+            "run_name": "model-wheel-deploy-${GITHUB_RUN_NUMBER}",
+            "tasks": [{
+              "task_key": "register_and_serve",
+              "spark_python_task": {
+                "python_file": "$ROOT/scripts/register_model.py",
+                "parameters": ["--model-name", "$CATALOG.$SCHEMA.demo_agent", "--llm-model", "$LLM", "--serving-endpoint", "$ENDPOINT"]
+              },
+              "libraries": [{"whl": "$ROOT/dist/$(basename "$WHL")"}]
+            }]
+          }
+          EOF
+          databricks jobs submit --json @job.json > run.json
+          echo "run_id=$(python -c 'import json;print(json.load(open("run.json"))["run_id"])')" >> "$GITHUB_OUTPUT"
+      - name: Wait for deployment
+        run: |
+          for i in $(seq 1 60); do
+            databricks runs get "${{ steps.job.outputs.run_id }}" > state.json
+            STATE=$(python -c 'import json;print(json.load(open("state.json"))["state"]["life_cycle_state"])')
+            RESULT=$(python -c 'import json;print(json.load(open("state.json"))["state"].get("result_state",""))')
+            echo "lifecycle=$STATE result=$RESULT"
+            if [ "$STATE" = "TERMINATED" ]; then
+              [ "$RESULT" = "SUCCESS" ] && exit 0
+              cat state.json; exit 1
+            fi
+            sleep 20
+          done
+          exit 1
