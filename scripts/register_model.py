@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import mlflow
+from mlflow.models.resources import DatabricksServingEndpoint
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import (
     EndpointCoreConfigInput,
@@ -166,6 +167,9 @@ def main():
                 {"input": "What is MLflow?"}
             ],
             code_paths=[str(wheel_path)],
+            resources=[
+                DatabricksServingEndpoint(endpoint_name=args.llm_model),
+            ],
             pip_requirements=[
                 f"code/{wheel_path.name}",
                 "databricks-langchain==0.6.0",
