@@ -20,23 +20,41 @@ class AgentModel(mlflow.pyfunc.PythonModel):
     def __init__(self, llm_model: str):
         self.llm_model = llm_model
 
-    def predict(self, context: Any, model_input: dict[str, Any]) -> str:
+    def predict(
+        self,
+        context: Any,
+        model_input: list[dict[str, Any]],
+    ) -> list[str]:
         print("Starting agent prediction...", flush=True)
 
         agent = build_agent(self.llm_model)
 
-        prompt = model_input.get("input", "")
+        # MLflow can provide a pandas DataFrame to predict() when the model
+        # is invoked through the normal pyfunc interface. Normalize both
+        # DataFrame and list-of-dicts inputs to the same internal format.
+        if hasattr(model_input, "to_dict"):
+            records = model_input.to_dict(orient="records")
+        else:
+            records = model_input
 
-        if not prompt:
-            raise ValueError(
-                "model input must contain a non-empty 'input' value"
-            )
+        responses: list[str] = []
 
-        result = agent.invoke({"input": prompt})
+        for record in records:
+            prompt = record.get("input", "")
+
+            if not isinstance(prompt, str) or not prompt.strip():
+                raise ValueError(
+                    "each model input must contain a non-empty 'input' string"
+                )
+
+            result = agent.invoke({"input": prompt})
+            output = result.get("output", result)
+
+            responses.append(str(output))
 
         print("Agent prediction completed.", flush=True)
 
-        return result.get("output", result)
+        return responses
 
 
 def parse_args():
@@ -140,10 +158,12 @@ def main():
         print("Logging pyfunc model to MLflow...", flush=True)
 
         info = mlflow.pyfunc.log_model(
-            artifact_path="agent",
+            name="agent",
             python_model=AgentModel(args.llm_model),
             registered_model_name=args.model_name,
-            input_example={"input": "What is MLflow?"},
+            input_example=[
+                {"input": "What is MLflow?"}
+            ],
             code_paths=[str(wheel_path)],
             extra_pip_requirements=[
                 f"code/{wheel_path.name}"
@@ -157,6 +177,11 @@ def main():
     # 4. Get registered model version
     # ------------------------------------------------------------------
     version = info.registered_model_version
+
+    if version is None:
+        raise RuntimeError(
+            "MLflow did not return a registered model version."
+        )
 
     print("Unity Catalog model registered successfully.", flush=True)
     print(f"Model   : {args.model_name}", flush=True)
