@@ -24,8 +24,8 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.11"
-  # DBFS_DIR: dbfs:/tmp/model-wheel-demo
-  DBFS_DIR: /Workspace/Shared/model-wheel-demo
+  DBFS_DIR: dbfs:/tmp/model-wheel-demo
+  # DBFS_DIR: /Workspace/Shared/model-wheel-demo
 
 jobs:
   build:
@@ -69,12 +69,31 @@ jobs:
 
       - name: Upload wheel and deployment script
         run: |
+          set -e
+          
           WHL=$(find dist -name '*.whl' -print -quit)
-          # databricks fs mkdir "$DBFS_DIR"
+
+          if [ -z "$WHL" ]; then
+            echo "ERROR: No wheel found in dist/"
+            exit 1
+          fi
+          WHL_NAME=$(basename "$WHL")
+
+          echo "Wheel: $WHL"
+          echo "Wheel name: $WHL_NAME"
+          
+          databricks fs mkdir "$DBFS_DIR"
           databricks fs cp "$WHL" "$DBFS_DIR/$(basename "$WHL")" --overwrite
+          
           databricks workspace mkdirs "$ROOT/scripts"
           databricks workspace import scripts/register_model.py "$ROOT/scripts/register_model.py" --overwrite
 
+          echo "Uploaded wheel:"
+          databricks fs ls "$DBFS_DIR"
+      
+          echo "Uploaded deployment script:"
+          databricks workspace get-status "$ROOT/scripts/register_model.py"
+    
       - name: Submit deployment job
         id: job
         env:
