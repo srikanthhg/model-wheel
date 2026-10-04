@@ -161,17 +161,17 @@ def main():
     version = info.registered_model_version
 
     print(
-        f"Unity Catalog model registered successfully.",
+        "Unity Catalog model registered successfully.",
         flush=True,
     )
 
     print(
-        f"Model : {args.model_name}",
+        "Model : {args.model_name}",
         flush=True,
     )
 
     print(
-        f"Version : {version}",
+        "Version : {version}",
         flush=True,
     )
 
@@ -205,7 +205,7 @@ def main():
     )
 
     print(
-        f"Champion -> version {version}",
+        "Champion -> version {version}",
         flush=True,
     )
 
@@ -238,7 +238,7 @@ def main():
     ]
 
     print(
-        f"Found {len(endpoint_names)} serving endpoint(s).",
+        "Found {len(endpoint_names)} serving endpoint(s).",
         flush=True,
     )
 
@@ -247,7 +247,7 @@ def main():
     # ------------------------------------------------------------------
     if args.serving_endpoint in endpoint_names:
         print(
-            f"Serving endpoint '{args.serving_endpoint}' already exists.",
+            "Serving endpoint '{args.serving_endpoint}' already exists.",
             flush=True,
         )
 
@@ -268,7 +268,7 @@ def main():
 
     else:
         print(
-            f"Serving endpoint '{args.serving_endpoint}' does not exist.",
+            "Serving endpoint '{args.serving_endpoint}' does not exist.",
             flush=True,
         )
 
@@ -298,22 +298,22 @@ def main():
     print("========================================", flush=True)
 
     print(
-        f"Registered model : {args.model_name}",
+        "Registered model : {args.model_name}",
         flush=True,
     )
 
     print(
-        f"Model version    : {version}",
+        "Model version    : {version}",
         flush=True,
     )
 
     print(
-        f"Champion         : version {version}",
+        "Champion         : version {version}",
         flush=True,
     )
 
     print(
-        f"Serving endpoint : {args.serving_endpoint}",
+        "Serving endpoint : {args.serving_endpoint}",
         flush=True,
     )
 
