@@ -275,39 +275,7 @@ jobs:
           echo "Model name: $MODEL_NAME"
       
           cat > job.json <<EOF
-          # {
-          #   "run_name": "model-wheel-deploy-${GITHUB_RUN_NUMBER}",
-          #   "tasks": [
-          #     {
-          #       "task_key": "register_and_serve",
-          #       "environment_key": "default",
-          #       "spark_python_task": {
-          #         "python_file": "${ROOT}/scripts/register_model.py",
-          #         "parameters": [
-          #           "--model-name",
-          #           "${MODEL_NAME}",
-          #           "--llm-model",
-          #           "${{ inputs.llm_model }}",
-          #           "--serving-endpoint",
-          #           "${{ inputs.serving_endpoint }}",
-          #           "--wheel-path",
-          #           "${RUNTIME_WHL_PATH}"
-          #         ]
-          #       }
-          #     }
-          #   ],
-          #   "environments": [
-          #     {
-          #       "environment_key": "default",
-          #       "spec": {
-          #         "environment_version": "4",
-          #         "dependencies": [
-          #           "${RUNTIME_WHL_PATH}"
-          #         ]
-          #       }
-          #     }
-          #   ]
-          # }
+
           {
             "run_name": "serverless-basic-test",
             "tasks": [
