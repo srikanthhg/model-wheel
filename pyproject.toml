@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "model-wheel-demo"
+version = "0.1.0"
+description = "Minimal Databricks MLflow agent and wheel deployment demo"
+requires-python = ">=3.10"
+dependencies = [
+    "mlflow>=2.18.0",
+    "databricks-sdk>=0.38.0",
+    "databricks-langchain>=0.6.0",
+    "langchain>=0.3.14",
+    "langchain-core>=0.3.29"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
