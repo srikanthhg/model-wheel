@@ -1,0 +1,332 @@
+name: Build and Deploy Databricks Agent
+
+on:
+  workflow_dispatch:
+    inputs:
+      catalog:
+        description: "Unity Catalog catalog"
+        required: true
+        default: "main"
+
+      schema:
+        description: "Unity Catalog schema"
+        required: true
+        default: "mlflow_demo"
+
+      llm_model:
+        description: "Databricks LLM model"
+        required: true
+        default: "databricks-meta-llama-3-3-70b-instruct"
+
+      serving_endpoint:
+        description: "Model serving endpoint"
+        required: true
+        default: "model-wheel-agent"
+
+jobs:
+
+  # ============================================================
+  # BUILD
+  # ============================================================
+  build:
+    name: Build Python Wheel
+    runs-on: ubuntu-latest
+
+    env:
+      PYTHON_VERSION: "3.11"
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build pytest ruff
+
+      - name: Build wheel
+        run: |
+          python -m build
+
+      - name: Show generated wheel
+        run: |
+          ls -lah dist/
+
+      - name: Install generated wheel
+        run: |
+          WHL=$(find dist -name '*.whl' -print -quit)
+
+          if [ -z "$WHL" ]; then
+            echo "ERROR: No wheel found"
+            exit 1
+          fi
+
+          pip install "$WHL"
+
+      - name: Run tests
+        run: |
+          pytest -q
+
+      - name: Run Ruff
+        run: |
+          ruff check .
+
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-wheel
+          path: dist/*.whl
+
+
+  # ============================================================
+  # DEPLOY
+  # ============================================================
+  deploy:
+    name: Deploy MLflow Agent
+    runs-on: ubuntu-latest
+    needs: build
+
+    env:
+      PYTHON_VERSION: "3.11"
+
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      ROOT: /Workspace/Shared/model-wheel-demo
+
+    steps:
+
+      # --------------------------------------------------------
+      # Checkout
+      # --------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # --------------------------------------------------------
+      # Python
+      # --------------------------------------------------------
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+
+      # --------------------------------------------------------
+      # Install Databricks CLI
+      # --------------------------------------------------------
+      - name: Install Databricks CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+          databricks version
+
+
+      # --------------------------------------------------------
+      # Download wheel artifact
+      # --------------------------------------------------------
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: model-wheel
+          path: dist
+
+
+      # --------------------------------------------------------
+      # Verify Databricks authentication
+      # --------------------------------------------------------
+      - name: Verify Databricks authentication
+        run: |
+          echo "=== Databricks identity ==="
+          databricks current-user me
+
+
+      # --------------------------------------------------------
+      # Upload wheel + deployment script
+      # --------------------------------------------------------
+      - name: Upload wheel and deployment script
+        env:
+          CATALOG: ${{ inputs.catalog }}
+          SCHEMA: ${{ inputs.schema }}
+
+        run: |
+          set -e
+
+          WHL=$(find dist -name '*.whl' -print -quit)
+
+          if [ -z "$WHL" ]; then
+            echo "ERROR: No wheel found in dist/"
+            exit 1
+          fi
+
+          WHL_NAME=$(basename "$WHL")
+
+          VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
+
+          echo "======================================"
+          echo "Wheel:"
+          echo "$WHL"
+          echo "======================================"
+
+          echo "Wheel name:"
+          echo "$WHL_NAME"
+
+          echo "Volume:"
+          echo "$VOLUME_DIR"
+
+          # ----------------------------------------------------
+          # Check Volume
+          # ----------------------------------------------------
+          echo "=== Checking Unity Catalog Volume ==="
+
+          databricks fs ls "$VOLUME_DIR"
+
+          # ----------------------------------------------------
+          # Upload wheel
+          # ----------------------------------------------------
+          echo "=== Uploading wheel ==="
+
+          databricks fs cp \
+            "$WHL" \
+            "$VOLUME_DIR/$WHL_NAME" \
+            --overwrite
+
+          # ----------------------------------------------------
+          # Create Workspace directory
+          # ----------------------------------------------------
+          echo "=== Creating Workspace directory ==="
+
+          databricks workspace mkdirs \
+            "$ROOT/scripts"
+
+          # ----------------------------------------------------
+          # Upload register_model.py
+          # ----------------------------------------------------
+          echo "=== Uploading register_model.py ==="
+
+          databricks workspace import \
+            "$ROOT/scripts/register_model.py" \
+            --file scripts/register_model.py \
+            --format SOURCE \
+            --language PYTHON \
+            --overwrite
+
+          # ----------------------------------------------------
+          # Verify wheel
+          # ----------------------------------------------------
+          echo "=== Uploaded wheel ==="
+
+          databricks fs ls "$VOLUME_DIR"
+
+          # ----------------------------------------------------
+          # Verify script
+          # ----------------------------------------------------
+          echo "=== Uploaded deployment script ==="
+
+          databricks workspace get-status \
+            "$ROOT/scripts/register_model.py"
+
+
+      # --------------------------------------------------------
+      # Submit Serverless Databricks Run
+      # --------------------------------------------------------
+      - name: Submit Serverless Databricks Run
+        env:
+          CATALOG: ${{ inputs.catalog }}
+          SCHEMA: ${{ inputs.schema }}
+          LLM: ${{ inputs.llm_model }}
+          ENDPOINT: ${{ inputs.serving_endpoint }}
+
+        run: |
+
+          set -e
+
+          WHL=$(find dist -name '*.whl' -print -quit)
+
+          if [ -z "$WHL" ]; then
+            echo "ERROR: No wheel found"
+            exit 1
+          fi
+
+          WHL_NAME=$(basename "$WHL")
+
+          VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
+
+          WHL_PATH="${VOLUME_DIR}/${WHL_NAME}"
+
+          MODEL_NAME="${CATALOG}.${SCHEMA}.demo_agent"
+
+          echo "======================================"
+          echo "Submitting Databricks Serverless Run"
+          echo "======================================"
+
+          echo "Model name:"
+          echo "$MODEL_NAME"
+
+          echo "LLM:"
+          echo "$LLM"
+
+          echo "Serving endpoint:"
+          echo "$ENDPOINT"
+
+          echo "Wheel:"
+          echo "$WHL_PATH"
+
+          # ----------------------------------------------------
+          # Generate job JSON
+          # ----------------------------------------------------
+          cat > job.json <<EOF
+          {
+            "run_name": "model-wheel-deploy-${GITHUB_RUN_NUMBER}",
+
+            "tasks": [
+              {
+                "task_key": "register_and_serve",
+
+                "spark_python_task": {
+                  "python_file": "${ROOT}/scripts/register_model.py",
+
+                  "parameters": [
+                    "--model-name",
+                    "${MODEL_NAME}",
+
+                    "--llm-model",
+                    "${LLM}",
+
+                    "--serving-endpoint",
+                    "${ENDPOINT}",
+
+                    "--wheel-path",
+                    "${WHL_PATH}"
+                  ]
+                },
+
+                "libraries": [
+                  {
+                    "whl": "${WHL_PATH}"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+
+          echo "======================================"
+          echo "Generated job.json"
+          echo "======================================"
+
+          cat job.json
+
+          echo "======================================"
+          echo "Submitting Serverless run"
+          echo "======================================"
+
+          databricks jobs submit \
+            --json @job.json \
+            --performance-target STANDARD
