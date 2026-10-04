@@ -93,7 +93,7 @@ jobs:
           databricks workspace import scripts/register_model.py "$ROOT/scripts/register_model.py" --overwrite
 
           echo "=== Uploaded wheel ==="
-          databricks fs ls "$DBFS_DIR"
+          databricks fs ls "$VOLUME_DIR"
       
           echo "=== Uploaded deployment script ==="
           databricks workspace get-status "$ROOT/scripts/register_model.py"
