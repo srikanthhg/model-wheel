@@ -237,6 +237,7 @@ jobs:
       # Submit Serverless Databricks Run
       # --------------------------------------------------------
       - name: Submit Serverless Databricks Run
+        id: job
         env:
           CATALOG: ${{ inputs.catalog }}
           SCHEMA: ${{ inputs.schema }}
@@ -306,6 +307,64 @@ jobs:
       
           echo "=== Submitting Serverless Run ==="
       
-          databricks jobs submit \
+          RUN_ID=$(databricks jobs submit \
             --json @job.json \
-            --performance-target STANDARD
+            --performance-target STANDARD \
+            --no-wait \
+            --output json | \
+            python -c 'import json,sys; print(json.load(sys.stdin)["run_id"])')
+
+          echo "Databricks Run ID: $RUN_ID"
+
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+      # --------------------------------------------------------
+      # Wait for Databricks deployment
+      # --------------------------------------------------------
+      - name: Wait for deployment job
+        run: |
+          for i in $(seq 1 60); do
+
+            echo "Checking Databricks run..."
+
+            databricks runs get "${{ steps.job.outputs.run_id }}" > state.json
+
+            STATE=$(python -c 'import json; print(json.load(open("state.json"))["state"]["life_cycle_state"])')
+
+            RESULT=$(python -c 'import json; print(json.load(open("state.json"))["state"].get("result_state",""))')
+
+            echo "lifecycle=$STATE result=$RESULT"
+
+            if [ "$STATE" = "TERMINATED" ]; then
+
+              if [ "$RESULT" = "SUCCESS" ]; then
+                echo "======================================"
+                echo "Databricks deployment completed successfully."
+                echo "======================================"
+                exit 0
+              fi
+
+              echo "======================================"
+              echo "Databricks deployment FAILED."
+              echo "======================================"
+
+              cat state.json
+
+              exit 1
+            fi
+
+            if [ "$STATE" = "INTERNAL_ERROR" ] || [ "$STATE" = "SKIPPED" ]; then
+
+              echo "Databricks deployment failed."
+
+              cat state.json
+
+              exit 1
+            fi
+
+            sleep 20
+
+          done
+
+          echo "Timed out waiting for Databricks job"
+
+          exit 1
