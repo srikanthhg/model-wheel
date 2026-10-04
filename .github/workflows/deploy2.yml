@@ -216,8 +216,8 @@ jobs:
             --format SOURCE \
             --language PYTHON \
             --overwrite
-            
-          echo "=== Uploading register_model.py ==="
+
+          echo "=== Uploading serverless_test.py ==="
           databricks workspace import \
             "$ROOT/scripts/serverless_test.py" \
             --file scripts/serverless_test.py \
@@ -251,29 +251,26 @@ jobs:
           SCHEMA: ${{ inputs.schema }}
         run: |
           set -e
-      
+
           WHL=$(find dist -name '*.whl' -print -quit)
-      
+
           if [ -z "$WHL" ]; then
             echo "ERROR: No wheel found in dist/"
             exit 1
           fi
-      
+
           WHL_NAME=$(basename "$WHL")
-      
-          # CLI path used for uploading files
-          # VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
-      
+
           # Runtime path used by Databricks Serverless
           RUNTIME_WHL_PATH="/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo/${WHL_NAME}"
-      
+
           MODEL_NAME="${CATALOG}.${SCHEMA}.demo_agent"
-      
+
           echo "Wheel: $WHL"
           echo "Wheel name: $WHL_NAME"
           echo "Runtime wheel path: $RUNTIME_WHL_PATH"
           echo "Model name: $MODEL_NAME"
-      
+
           cat > job.json <<EOF
           {
             "run_name": "model-wheel-deploy-${GITHUB_RUN_NUMBER}",
@@ -283,16 +280,12 @@ jobs:
                 "environment_key": "default",
                 "notebook_task": {
                   "notebook_path": "${ROOT}/scripts/register_model.py",
-                  "parameters": [
-                    "--model-name",
-                    "${MODEL_NAME}",
-                    "--llm-model",
-                    "${{ inputs.llm_model }}",
-                    "--serving-endpoint",
-                    "${{ inputs.serving_endpoint }}",
-                    "--wheel-path",
-                    "${RUNTIME_WHL_PATH}"
-                  ]
+                  "base_parameters": {
+                    "model-name": "${MODEL_NAME}",
+                    "llm-model": "${{ inputs.llm_model }}",
+                    "serving-endpoint": "${{ inputs.serving_endpoint }}",
+                    "wheel-path": "${RUNTIME_WHL_PATH}"
+                  }
                 }
               }
             ],
@@ -309,12 +302,12 @@ jobs:
             ]
           }
           EOF
-          
+
           echo "=== Databricks Serverless Job JSON ==="
           cat job.json
-      
+
           echo "=== Submitting Serverless Run ==="
-      
+
           RUN_ID=$(databricks jobs submit \
             --json @job.json \
             --performance-target STANDARD \
@@ -325,6 +318,8 @@ jobs:
           echo "Databricks Run ID: $RUN_ID"
 
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+
       # --------------------------------------------------------
       # Wait for Databricks deployment
       # --------------------------------------------------------
@@ -339,7 +334,7 @@ jobs:
             STATE=$(python -c 'import json; print(json.load(open("state.json"))["state"]["life_cycle_state"])')
 
             RESULT=$(python -c 'import json; print(json.load(open("state.json"))["state"].get("result_state",""))')
-            
+
             echo "lifecycle=$STATE result=$RESULT"
 
             if [ "$STATE" = "TERMINATED" ]; then
