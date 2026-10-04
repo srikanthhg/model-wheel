@@ -9,6 +9,7 @@ from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.serving import (
     EndpointCoreConfigInput,
     ServedModelInput,
+    ServedModelInputWorkloadSize,
 )
 
 from model_wheel_demo.agent import build_agent
@@ -217,11 +218,7 @@ def main():
     served = ServedModelInput(
         model_name=args.model_name,
         model_version=version,
-        # Use explicit concurrency instead of workload_size because the
-        # Databricks SDK version in the runtime does not expose a WorkloadSize enum.
-        # Small workload = 4 provisioned concurrency; scale-to-zero allows it to drop to 0.
-        min_provisioned_concurrency=4,
-        max_provisioned_concurrency=4,
+        workload_size=ServedModelInputWorkloadSize.SMALL,
         scale_to_zero_enabled=True,
     )
 
