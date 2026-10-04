@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      PYTHON_VERSION: "3.10"
+      PYTHON_VERSION: "3.12"
 
     steps:
 
@@ -93,7 +93,7 @@ jobs:
     needs: build
 
     env:
-      PYTHON_VERSION: "3.11"
+      PYTHON_VERSION: "3.12"
 
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
       DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -339,9 +339,8 @@ jobs:
             STATE=$(python -c 'import json; print(json.load(open("state.json"))["state"]["life_cycle_state"])')
 
             RESULT=$(python -c 'import json; print(json.load(open("state.json"))["state"].get("result_state",""))')
-            TASK=$(python -c 'import json; print(json.load(open("state.json"))["tasks"]["state"]["state_message"])')
-
-            echo "lifecycle=$STATE result=$RESULT" task="$TASK"
+            
+            echo "lifecycle=$STATE result=$RESULT"
 
             if [ "$STATE" = "TERMINATED" ]; then
 
