@@ -1,0 +1,27 @@
+name: Delete Databricks Agent Serving Endpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      serving_endpoint:
+        required: true
+        default: model-wheel-agent
+
+permissions:
+  contents: read
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    environment: databricks
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --upgrade databricks-cli
+      - name: Delete endpoint
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          ENDPOINT: ${{ inputs.serving_endpoint }}
+        run: databricks serving-endpoints delete "$ENDPOINT"
