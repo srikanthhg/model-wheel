@@ -73,14 +73,6 @@ jobs:
           SCHEMA: ${{ inputs.schema }}
         run: |
           set -e
-
-
-
-
-
-
-
-
           
           WHL=$(find dist -name '*.whl' -print -quit)
 
@@ -96,9 +88,17 @@ jobs:
           echo "Volume: $VOLUME_DIR"
           
           databricks fs cp "$WHL" "$VOLUME_DIR/$WHL_NAME" --overwrite
-          
+
+          echo "=== Creating Workspace script directory ==="
           databricks workspace mkdirs "$ROOT/scripts"
-          databricks workspace import scripts/register_model.py "$ROOT/scripts/register_model.py" --overwrite
+
+          echo "=== Uploading deployment script ==="
+          databricks workspace import \
+            "$ROOT/scripts/register_model.py" \
+            --file scripts/register_model.py \
+            --format SOURCE \
+            --language PYTHON \
+            --overwrite
 
           echo "=== Uploaded wheel ==="
           databricks fs ls "$VOLUME_DIR"
