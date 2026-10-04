@@ -99,7 +99,7 @@ jobs:
                   "--model-name", "${CATALOG}.${SCHEMA}.demo_agent",
                   "--llm-model", "${LLM}",
                   "--serving-endpoint", "${ENDPOINT}",
-                  "--wheel-path", "/dbfs/tmp/model-wheel-demo/${WHL_NAME}"
+                  "--wheel-path", "/dbfs/Workspace/Shared/model-wheel-demo/${WHL_NAME}"
                 ]
               },
               "libraries": [
