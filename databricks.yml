@@ -31,7 +31,7 @@ targets:
     workspace:
       host: ${env.DATABRICKS_HOST}
     variables:
-      schema: mlflow_demo
+      schema: mlflow_demo_dev
       serving_endpoint: model-wheel-dev-agent
 
   prod:
