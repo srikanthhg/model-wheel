@@ -2,14 +2,13 @@ resources:
   jobs:
     model_wheel_deploy:
       name: model-wheel-${bundle.target}-deploy
-      description: Build and register the model-wheel agent in Unity Catalog, promote Champion, and reconcile its serving endpoint.
+      description: Register the agent in Unity Catalog, reconcile Model Serving, and promote the Champion alias.
       max_concurrent_runs: 1
       timeout_seconds: 7200
       tasks:
         - task_key: register_and_serve
-          description: Log the MLflow pyfunc agent, register the UC model, promote Champion, and create or update Model Serving.
           python_script_task:
-            python_file: ../scripts/register_model.py
+            python_file: scripts/register_model.py
             source: WORKSPACE
             parameters:
               - --model-name
@@ -24,7 +23,7 @@ resources:
           spec:
             client: "1"
             dependencies:
-              - ../dist/*.whl
+              - ./dist/*.whl
               - databricks-langchain==0.6.0
               - langchain==0.3.14
               - langchain-core==0.3.29
