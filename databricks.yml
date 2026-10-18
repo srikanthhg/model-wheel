@@ -1,0 +1,43 @@
+bundle:
+  name: model-wheel
+
+include:
+  - resources/*.yml
+
+artifacts:
+  default:
+    type: whl
+    build: python -m build
+    path: .
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for the registered model.
+    default: main
+  schema:
+    description: Unity Catalog schema for the registered model.
+    default: mlflow_demo
+  llm_model:
+    description: Existing Databricks Model Serving endpoint used by the agent.
+    default: databricks-meta-llama-3-3-70b-instruct
+  serving_endpoint:
+    description: Endpoint managed by the registration script.
+    default: model-wheel-agent
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: ${env.DATABRICKS_HOST}
+    variables:
+      schema: mlflow_demo_dev
+      serving_endpoint: model-wheel-dev-agent
+
+  prod:
+    mode: production
+    workspace:
+      host: ${env.DATABRICKS_HOST}
+    variables:
+      schema: mlflow_demo
+      serving_endpoint: model-wheel-agent

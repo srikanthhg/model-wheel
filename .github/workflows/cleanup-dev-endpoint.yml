@@ -1,0 +1,43 @@
+name: Delete development serving endpoint
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type DELETE model-wheel-dev-agent to confirm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  delete-dev-endpoint:
+    if: inputs.confirm == 'DELETE model-wheel-dev-agent'
+    runs-on: ubuntu-latest
+    environment: development
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: databricks/setup-cli@main
+      - name: Delete only the explicitly named development endpoint
+        run: |
+          python - <<'PY'
+          from databricks.sdk import WorkspaceClient
+
+          endpoint_name = "model-wheel-dev-agent"
+          client = WorkspaceClient()
+          names = {endpoint.name for endpoint in client.serving_endpoints.list()}
+          if endpoint_name not in names:
+              print(f"{endpoint_name} does not exist; nothing to delete.")
+          else:
+              client.serving_endpoints.delete(name=endpoint_name)
+              print(f"Deletion requested for {endpoint_name}.")
+          PY

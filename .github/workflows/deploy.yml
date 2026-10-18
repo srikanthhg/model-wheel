@@ -1,172 +1,90 @@
-name: Build and Deploy Databricks Agent
+name: Test and deploy model-wheel bundle
 
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
-      catalog:
-        required: true
-        default: main
-      schema:
-        required: true
-        default: mlflow_demo
-      llm_model:
-        required: true
-        default: databricks-meta-llama-3-3-70b-instruct
-      serving_endpoint:
-        required: true
-        default: model-wheel-agent
-      existing_cluster_id:
-        description: "Databricks cluster ID used for the deployment job"
+      target:
+        description: Deployment target
+        type: choice
+        options: [dev, prod]
+        default: dev
         required: true
 
 permissions:
   contents: read
+  id-token: write
 
 env:
-  PYTHON_VERSION: "3.11"
-  # DBFS_DIR: dbfs:/tmp/model-wheel-demo
-  # DBFS_DIR: /Workspace/Shared/model-wheel-demo
+  PYTHON_VERSION: "3.12"
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: python -m pip install --upgrade pip build pytest ruff
-      - run: python -m build
-      - run: |
+          cache: pip
+      - name: Install build and test tools
+        run: python -m pip install --upgrade pip build pytest ruff
+      - name: Lint
+        run: ruff check .
+      - name: Build wheel
+        run: python -m build
+      - name: Install wheel and run tests
+        run: |
           python -m pip install dist/*.whl
           pytest -q
-          ruff check .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: model-wheel
-          path: dist/*.whl
 
-  deploy:
-    needs: build
+  deploy-dev:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'dev')
+    needs: test
     runs-on: ubuntu-latest
-    environment: databricks
+    environment: development
     env:
       DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
-      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
-      ROOT: /Workspace/Shared/model-wheel-demo
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-
       - uses: databricks/setup-cli@main
+      - name: Install bundle build dependency
+        run: python -m pip install --upgrade build
+      - name: Validate bundle
+        run: databricks bundle validate -t dev
+      - name: Deploy bundle resources
+        run: databricks bundle deploy -t dev
+      - name: Run deployment job
+        run: databricks bundle run -t dev model_wheel_deploy
 
-      - uses: actions/download-artifact@v4
+  deploy-prod:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'prod'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+      DATABRICKS_AUTH_TYPE: github-oidc
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          name: model-wheel
-          path: dist
-
-      - name: Upload wheel and deployment script
-        env:
-          CATALOG: ${{ inputs.catalog }}
-          SCHEMA: ${{ inputs.schema }}
-        run: |
-          set -e
-          
-          WHL=$(find dist -name '*.whl' -print -quit)
-
-          if [ -z "$WHL" ]; then
-            echo "ERROR: No wheel found in dist/"
-            exit 1
-          fi
-          WHL_NAME=$(basename "$WHL")
-          VOLUME_DIR="dbfs:/Volumes/${CATALOG}/${SCHEMA}/model_wheel_demo"
-          
-          echo "Wheel: $WHL"
-          echo "Wheel name: $WHL_NAME"
-          echo "Volume: $VOLUME_DIR"
-          
-          databricks fs cp "$WHL" "$VOLUME_DIR/$WHL_NAME" --overwrite
-
-          echo "=== Creating Workspace script directory ==="
-          databricks workspace mkdirs "$ROOT/scripts"
-
-          echo "=== Uploading deployment script ==="
-          databricks workspace import \
-            "$ROOT/scripts/register_model.py" \
-            --file scripts/register_model.py \
-            --format SOURCE \
-            --language PYTHON \
-            --overwrite
-
-          echo "=== Uploaded wheel ==="
-          databricks fs ls "$VOLUME_DIR"
-      
-          echo "=== Uploaded deployment script ==="
-          databricks workspace get-status "$ROOT/scripts/register_model.py"
-    
-      - name: Submit deployment job
-        id: job
-        env:
-          CATALOG: ${{ inputs.catalog }}
-          SCHEMA: ${{ inputs.schema }}
-          LLM: ${{ inputs.llm_model }}
-          ENDPOINT: ${{ inputs.serving_endpoint }}
-          CLUSTER_ID: ${{ inputs.existing_cluster_id }}
-          VOLUME_DIR: dbfs:/Volumes/${{ inputs.catalog }}/${{ inputs.schema }}/model_wheel_demo
-        run: |
-          set -e
-          
-          WHL=$(find dist -name '*.whl' -print -quit)
-          WHL_NAME=$(basename "$WHL")
-
-          cat > job.json <<EOF
-          {
-            "run_name": "model-wheel-deploy-${GITHUB_RUN_NUMBER}",
-            "tasks": [{
-              "task_key": "register_and_serve",
-              "existing_cluster_id": "${CLUSTER_ID}",
-              "spark_python_task": {
-                "python_file": "${ROOT}/scripts/register_model.py",
-                "parameters": [
-                  "--model-name", "${CATALOG}.${SCHEMA}.demo_agent",
-                  "--llm-model", "${LLM}",
-                  "--serving-endpoint", "${ENDPOINT}",
-                  "--wheel-path", "${VOLUME_DIR}/${WHL_NAME}"
-                ]
-              },
-              "libraries": [
-                {"whl": "${VOLUME_DIR}/${WHL_NAME}"}
-              ]
-            }]
-          }
-          EOF
-
-          echo "=== Job definition ==="
-          cat job.json
-
-          databricks jobs submit --json @job.json > run.json
-          echo "run_id=$(python -c 'import json;print(json.load(open("run.json"))["run_id"])')" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for deployment job
-        run: |
-          for i in $(seq 1 60); do
-            databricks runs get "${{ steps.job.outputs.run_id }}" > state.json
-            STATE=$(python -c 'import json;print(json.load(open("state.json"))["state"]["life_cycle_state"])')
-            RESULT=$(python -c 'import json;print(json.load(open("state.json"))["state"].get("result_state",""))')
-            echo "lifecycle=$STATE result=$RESULT"
-            if [ "$STATE" = "TERMINATED" ]; then
-              if [ "$RESULT" = "SUCCESS" ]; then
-                exit 0
-              fi
-              
-              cat state.json
-              exit 1
-            fi
-            
-            sleep 20
-          done
-          
-          echo "Timed out waiting for Databricks job"
-          exit 1
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: databricks/setup-cli@main
+      - name: Install bundle build dependency
+        run: python -m pip install --upgrade build
+      - name: Validate bundle
+        run: databricks bundle validate -t prod
+      - name: Deploy bundle resources
+        run: databricks bundle deploy -t prod
+      - name: Run deployment job
+        run: databricks bundle run -t prod model_wheel_deploy

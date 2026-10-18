@@ -1,46 +1,101 @@
-# Databricks MLflow Model + Wheel Demo
+# Model Wheel: Databricks Asset Bundles
 
-End-to-end lifecycle: GitHub Actions -> Python wheel -> Databricks Job -> MLflow agent -> Unity Catalog -> Champion alias -> Model Serving.
+This repository packages a Python LangChain agent as a wheel, logs it as an MLflow PyFunc model, registers the model in Unity Catalog, promotes a `Champion` alias, and creates or updates a Model Serving endpoint.
 
-Default LLM: `databricks-meta-llama-3-3-70b-instruct`.
+The deployment resources are managed with **Databricks Asset Bundles (DAB)**. GitHub Actions runs linting and tests, validates the bundle, deploys the declared job, and invokes it on Databricks serverless job compute.
 
-## Deploy
+## Architecture
 
-Create the Unity Catalog schema:
+1. GitHub Actions runs Ruff, builds the wheel, installs it, and runs pytest.
+2. `databricks bundle validate` validates the selected target.
+3. `databricks bundle deploy` deploys the bundle-managed job.
+4. `databricks bundle run` starts the job on serverless compute.
+5. The job logs the agent as an MLflow PyFunc model and registers it in Unity Catalog.
+6. The job creates or updates the target Model Serving endpoint, then assigns the `Champion` alias to the newly registered model version.
+
+The MLflow model artifact contains a copy of the `model_wheel_demo` Python package. The wheel is also installed as a job dependency. This avoids relying on a local runner path or a long-lived DBFS file path when the serving endpoint loads the model.
+
+## Prerequisites
+
+- A Databricks workspace that supports serverless jobs and serverless Python script tasks.
+- Unity Catalog enabled, with the selected catalog/schema available to the deployment identity.
+- The LLM serving endpoint `databricks-meta-llama-3-3-70b-instruct` already deployed and accessible to the agent.
+- Permissions to create registered models and model versions, update model aliases, create/update serving endpoints, and invoke the LLM endpoint.
+- A GitHub OIDC federation trust configured between GitHub Actions and a Databricks service principal.
+
+Create the schema once if it does not already exist:
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS main.mlflow_demo;
+CREATE SCHEMA IF NOT EXISTS main.mlflow_demo_dev;\nCREATE SCHEMA IF NOT EXISTS main.mlflow_demo;
 ```
 
-Add GitHub environment `databricks` with secrets:
+### GitHub environments and secrets
 
-- `DATABRICKS_HOST`
-- `DATABRICKS_TOKEN`
+Create GitHub environments named:
 
-Then run **Actions -> Build and Deploy Databricks Agent -> Run workflow**.
+- `development`
+- `production`
 
-The workflow builds and tests the wheel, uploads the wheel and registration script to Databricks Workspace Files, submits a one-time Databricks Job with the wheel attached, and waits for completion.
+Configure the following environment secrets in both environments:
 
-The Databricks job:
-1. Builds a small LangChain agent using the Databricks-hosted LLM.
-2. Logs it with MLflow.
-3. Registers it in Unity Catalog.
-4. Sets the `Champion` alias to the new model version.
-5. Creates or updates the Model Serving endpoint.
+- `DATABRICKS_HOST`: workspace URL, for example `https://<workspace-host>`
+- `DATABRICKS_CLIENT_ID`: application/client ID for the Databricks service principal configured for GitHub OIDC federation
 
-Default result:
+The workflow uses `DATABRICKS_AUTH_TYPE=github-oidc`. Configure the federation issuer, subject, and audience in Databricks to match your repository and GitHub environment. Do not add a personal access token to the repository.
 
+Protect the GitHub `production` environment with required reviewers. The production deployment is manually triggered from Actions and must pass that environment's approval rules.
+
+## Bundle targets
+
+The bundle defines two targets in `databricks.yml`:
+
+| Target | Model | Serving endpoint |
+|---|---|---|
+| `dev` | `main.mlflow_demo.demo_agent` | `model-wheel-dev-agent` |
+| `prod` | `main.mlflow_demo.demo_agent` | `model-wheel-agent` |
+
+Development uses DAB development mode, which can prefix or otherwise isolate deployed resources. Production uses production mode. The targets use separate Unity Catalog schemas so development runs do not overwrite the production model's Champion alias. Create both schemas and grant the deployment service principal the required privileges before the first deployment.
+
+## Local commands
+
+Install Python 3.12 and the Databricks CLI, then authenticate using your configured identity. Set `DATABRICKS_HOST` and configure Databricks CLI OAuth authentication.
+
+```bash
+python -m pip install --upgrade build pytest ruff
+python -m build
+python -m pip install dist/*.whl
+pytest -q
+ruff check .
+
+databricks bundle validate -t dev
+databricks bundle deploy -t dev
+databricks bundle run -t dev model_wheel_deploy
 ```
-main.mlflow_demo.demo_agent
-        |
-     Version 1
-        |
-    Champion
-        |
-        v
-model-wheel-agent
+
+For production, use the protected GitHub Actions `production` environment or run the equivalent commands only with the production service principal and workspace configuration:
+
+```bash
+databricks bundle validate -t prod
+databricks bundle deploy -t prod
+databricks bundle run -t prod model_wheel_deploy
 ```
 
-Cleanup workflow: **Actions -> Delete Databricks Agent Serving Endpoint**.
+Do not deploy the production target until its environment points to the intended production workspace and the model/endpoint naming and permissions have been verified.
 
-The wheel is the Python package. The MLflow model is the versioned deployable artifact. Unity Catalog stores/versions the model and the Champion alias points to the promoted version.
+## GitHub Actions flow
+
+- Pull requests to `main`: lint, build, install the wheel, and run tests.
+- Pushes to `main`: run CI and deploy to development.
+- Manual workflow dispatch: select `dev` or `prod`. Production uses the protected `production` environment.
+
+## Cleanup
+
+The `Delete development serving endpoint` workflow can delete only the hard-coded development endpoint `model-wheel-dev-agent`. It requires the exact confirmation phrase `DELETE model-wheel-dev-agent`. It does not delete the Unity Catalog model, model versions, aliases, or the production endpoint.
+
+Do not use `databricks bundle destroy -t prod` as a general cleanup command. Bundle destruction deletes managed resources and should only be performed after reviewing the plan and confirming the target.
+
+## Serverless compatibility notes
+
+The job uses a serverless environment specification and installs the built wheel plus the pinned LangChain dependencies. Serverless job support and available Python versions vary by workspace/cloud/region. If `bundle validate` or the workspace rejects the Python script task/environment specification, use a supported serverless task type/runtime for that workspace or switch the job to a bundle-managed job cluster; do not silently fall back to an unrelated existing cluster.
+
+The workflow has been authored in this branch but must still be validated against your actual workspace, service-principal permissions, and serverless support before it can be considered production-ready.
