@@ -80,6 +80,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - uses: databricks/setup-cli@main
+      - name: Install bundle build dependency
+        run: python -m pip install --upgrade build
       - name: Validate bundle
         run: databricks bundle validate -t prod
       - name: Deploy bundle resources
