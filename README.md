@@ -26,7 +26,7 @@ The MLflow model artifact contains a copy of the `model_wheel_demo` Python packa
 Create the schema once if it does not already exist:
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS main.mlflow_demo;
+CREATE SCHEMA IF NOT EXISTS main.mlflow_demo_dev;\nCREATE SCHEMA IF NOT EXISTS main.mlflow_demo;
 ```
 
 ### GitHub environments and secrets
@@ -54,7 +54,7 @@ The bundle defines two targets in `databricks.yml`:
 | `dev` | `main.mlflow_demo.demo_agent` | `model-wheel-dev-agent` |
 | `prod` | `main.mlflow_demo.demo_agent` | `model-wheel-agent` |
 
-Development uses DAB development mode, which can prefix or otherwise isolate deployed resources. Production uses production mode. Both currently point at the same model name/schema; for strict isolation, use a separate production schema or catalog and configure target-specific `catalog`/ `schema` variables before enabling production deployments.
+Development uses DAB development mode, which can prefix or otherwise isolate deployed resources. Production uses production mode. The targets use separate Unity Catalog schemas so development runs do not overwrite the production model's Champion alias. Create both schemas and grant the deployment service principal the required privileges before the first deployment.
 
 ## Local commands
 
